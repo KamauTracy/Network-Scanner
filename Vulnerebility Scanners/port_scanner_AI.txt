@@ -1,0 +1,113 @@
+import json
+
+import csv
+
+import socket
+
+import os
+
+#Convert json to csv
+def json_to_csv(json_file, csv_file):
+    try:
+        with open(json_file, "r") as file:
+            data = json.load(file)
+        with open(csv_file, "w", newline="") as csvfile:
+            csv_writer = csv.writer(csvfile)
+            # Write header
+            csv_writer.writerow(["CVE_ID", "Product", "Description"])
+
+#Extract information for each CVE entry
+            for entry in data:
+                cve_id = entry["cveMetadata"]["cveId"]
+                descriptions = entry["containers"]["cna"]["descriptions"]
+                affected_products = entry["containers"]["cna"]["affected"]
+
+    #Extract product and description for each affected product
+                for product_info in affected_products:
+                    product = f"{product_info['vendor']} {product_info['product']}"
+                    for description in descriptions:
+                        if description["lang"] == "en":
+                            desc_text = description ["value"]
+
+                            # Write each row within the loop
+                            csv_writer.writerow([cve_id, product, desc_text])
+    except FileNotFoundError:
+        print(f"File {json_file} not found. Please check the path.")
+    except json.JSONDecodeError:
+        print("Error decoding JSON. Check if the file is correctly formatted.")
+
+#Define Target details
+ip_address = "270.0.0.1"
+start_port = 130
+end_port = 1024
+timeout = 1
+
+#Define Port scanning function
+def scan_port(port):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(1)
+    try:
+        result = sock.connect_ex((ip_address, port))
+        if result == 0:
+            print(f"Port {port} is open")
+            return True
+        else:
+            print(f"Port {port} is closed")
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    finally:
+        sock.close()
+    return False
+
+#Banner grabbing function
+def banner_grab(port):
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect((ip_address, port))
+        sock.send(b"Hello\r\n") #To get a response to identify services/software operating on the open ports
+        banner = sock.recv(1024) #Capture the banner information
+        return banner.decode().strip()
+    except Exception as e:
+        print(f"No banner for port {port}")
+        return None
+
+#Load vulnerability data from CSV
+def load_vulnerabilities(csv_file):
+    vulnerabilities = []
+    with open(csv_file, "r") as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            vulnerabilities.append(row)
+    return vulnerabilities
+
+#Check Vulnerabilities Function
+def check_vulnerabilities(banner, vulnerabilities):
+        for entry in vulnerabilities:
+            if entry["Product"].lower() in banner.lower():
+                print(f"Vulnerability found: {entry['CVE_ID']} - {entry['Description']}")
+                return entry["CVE_ID"]
+        return None
+
+# Main Function to Run the Complete Scanner
+def run_scanner():
+    #Convert JSON CVE list to CSV (Step 1)
+    json_to_csv(r"C:\Users\pc\PycharmProjects\Helloworld\pythonProject\.venv\CVE-2024-0001.json", "formatted_cve_list.csv")
+
+    # Load the vulnerabilities from the newly created CSV file
+    vulnerabilities = load_vulnerabilities("formatted_cve_list.csv")
+
+#Scan each port...
+    for port in range(start_port, end_port + 1):
+        if scan_port(port): #Check if port is open
+            banner = banner_grab(port) #Attempt banner grab if the port is open
+            if banner:
+                print(f"Banner for port {port}: {banner}")
+                vuln = check_vulnerabilities(banner, vulnerabilities)
+                if vuln:
+                    print(f"Potential Vulnerability on port {port}: {vuln}")
+                else:
+                    print(f"No known vulnerabilities found for port {port}")
+
+run_scanner()
